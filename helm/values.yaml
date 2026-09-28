@@ -574,6 +574,12 @@ externalSecrets:
   # -- Target secret name (defaults to fullname-secrets)
   secretName: ""
 
+  # -- Remote key (item/path in the external store) used by the auto-generated
+  # `data` mappings. Defaults to the target secret name — the 1Password
+  # pattern, where the k8s Secret mirrors an item of the same name (e.g. the
+  # weknora-creds item with DB_USER, DB_PASSWORD, ... fields).
+  remoteKey: ""
+
   # -- What happens if the target secret already exists: Owner (reconcile and
   # manage) or Merge (only sync listed keys, keep the rest). Use Merge when
   # SYSTEM_AES_KEY is managed separately, e.g. by an earlier deploy step.
@@ -588,6 +594,11 @@ externalSecrets:
   annotations: {}
 
   # -- Key mappings. Each entry syncs one key of the Kubernetes Secret.
+  # When both `data` and `dataFrom` are empty, the chart auto-generates
+  # mappings for the default key set (base keys + feature-dependent ones:
+  # NEO4J_* when neo4j.enabled, MINIO_* / S3_* per storage.type) pointing at
+  # `remoteKey` with property == key name. ESO rejects an ExternalSecret
+  # without data/dataFrom, so at least one source is always rendered.
   data: []
   #  - secretKey: DB_PASSWORD
   #    remoteRef:

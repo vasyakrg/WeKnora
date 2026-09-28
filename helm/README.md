@@ -173,8 +173,34 @@ Instead of passing secrets via `--set`, sync them from an external store.
 The chart renders an `ExternalSecret` that produces the very same Secret the
 workloads already reference — nothing else changes.
 
+**Zero-mapping setup (1Password):** if the store item exposes one field per
+secret key (`DB_USER`, `DB_PASSWORD`, `JWT_SECRET`, ... — exactly how the
+documented `weknora-creds` item is laid out), no key mappings are needed. The
+chart auto-generates them; the remote item defaults to the target secret
+name:
+
 ```yaml
-# values-eso.yaml
+secrets:
+  create: false
+externalSecrets:
+  enabled: true
+  refreshInterval: 1h
+  secretStore:
+    name: onepassword-t8s-nsk
+    kind: ClusterSecretStore
+  secretName: weknora-creds   # k8s Secret AND remote item name
+```
+
+The auto-generated key set mirrors the chart-managed Secret: base keys plus
+`NEO4J_*` when neo4j is enabled and `MINIO_*`/`S3_*` per `storage.type`. A
+different remote path can be set via `externalSecrets.remoteKey`.
+
+**Explicit mappings** (e.g. Vault, or field names that differ from the
+secret keys):
+
+```yaml
+secrets:
+  create: false
 externalSecrets:
   enabled: true
   secretStore:
@@ -438,6 +464,7 @@ existing secret).
 | `externalSecrets.secretStore.name` | (Cluster)SecretStore name | `""` (required) |
 | `externalSecrets.secretStore.kind` | `SecretStore` or `ClusterSecretStore` | `SecretStore` |
 | `externalSecrets.secretName` | Target Secret name | `<fullname>-secrets` |
+| `externalSecrets.remoteKey` | Remote item/path for auto-generated mappings | `""` (= secretName) |
 | `externalSecrets.refreshInterval` | Sync interval | `1h` |
 | `externalSecrets.creationPolicy` | `Owner` or `Merge` | `Owner` |
 | `externalSecrets.deletionPolicy` | `Retain` or `Delete` | `Retain` |

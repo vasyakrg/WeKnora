@@ -34,6 +34,30 @@ if grep -q '^kind: Secret$' <<<"$out"; then fail "plain Secret rendered together
 grep -q 'secretKeyRef' <<<"$out" || fail "app does not reference the secret"
 ok "ExternalSecret rendered, no plain Secret"
 
+echo "== 2b. ESO auto data mapping (no data/dataFrom given) =="
+out=$(helm template weknora . \
+  --set externalSecrets.enabled=true \
+  --set externalSecrets.secretStore.name=onepassword-t8s-nsk \
+  --set externalSecrets.secretStore.kind=ClusterSecretStore \
+  --set externalSecrets.secretName=weknora-creds)
+grep -q 'kind: ExternalSecret' <<<"$out" || fail "ExternalSecret not rendered"
+[ "$(grep -c 'secretKey:' <<<"$out")" -eq 7 ] || fail "expected 7 auto base keys, got $(grep -c 'secretKey:' <<<"$out")"
+grep -q 'key: weknora-creds' <<<"$out" || fail "remoteRef.key should default to secretName"
+grep -q 'property: SYSTEM_AES_KEY' <<<"$out" || fail "auto property per key"
+if grep -q 'property: NEO4J_USERNAME' <<<"$out"; then fail "neo4j keys leaked into base set"; fi
+ok "auto mappings: 7 base keys, remoteKey=secretName"
+
+echo "== 2c. ESO auto data includes feature keys =="
+out=$(helm template weknora . \
+  --set externalSecrets.enabled=true \
+  --set externalSecrets.secretStore.name=op-store \
+  --set neo4j.enabled=true --set neo4j.password=p \
+  --set storage.type=minio --set storage.minio.endpoint=m:9000 --set storage.minio.bucket=b)
+[ "$(grep -c 'secretKey:' <<<"$out")" -eq 11 ] || fail "expected 11 keys (base+neo4j+minio), got $(grep -c 'secretKey:' <<<"$out")"
+grep -q 'property: MINIO_SECRET_ACCESS_KEY' <<<"$out" || fail "minio keys"
+grep -q 'property: NEO4J_PASSWORD' <<<"$out" || fail "neo4j keys"
+ok "feature-dependent keys auto-included"
+
 echo "== 3. Traefik ingress =="
 out=$(helm template weknora . "${BASE[@]}" \
   --set ingress.enabled=true --set ingress.className=traefik --set ingress.host=weknora.local)
