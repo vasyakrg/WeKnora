@@ -596,6 +596,14 @@ externalSecrets:
   labels: {}
   annotations: {}
 
+  # -- Whole-item extraction: render `dataFrom: [{extract: {key: <item>}}]`
+  # instead of per-key mappings. Syncs every field of the remote item as-is,
+  # so fields can be added/removed in 1Password without touching the chart.
+  # This is the proven-working pattern for the 1Password SDK provider, whose
+  # per-field reference parsing is unreliable. Uses remoteKey (default:
+  # secretName) as the item name — plain name, no op:// prefix.
+  extract: false
+
   # -- Key mappings. Each entry syncs one key of the Kubernetes Secret.
   # When both `data` and `dataFrom` are empty, the chart auto-generates
   # mappings for the default key set: DB_USER, DB_PASSWORD, DB_NAME,

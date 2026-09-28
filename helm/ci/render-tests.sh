@@ -67,6 +67,29 @@ grep -q 'key: op://t8s-nsk/weknora-creds/SYSTEM_AES_KEY' <<<"$out" || fail "op:/
 [ "$(grep -c 'property:' <<<"$out")" -eq 0 ] || fail "property must be omitted in op:// form"
 ok "op:// form: full URI per key, no property (1Password SDK provider)"
 
+echo "== 2b4. ESO whole-item extract mode =="
+out=$(helm template weknora . \
+  --set externalSecrets.enabled=true \
+  --set externalSecrets.secretStore.name=onepassword-t8s-nsk \
+  --set externalSecrets.secretStore.kind=ClusterSecretStore \
+  --set externalSecrets.secretName=weknora-creds \
+  --set externalSecrets.extract=true)
+grep -q 'dataFrom:' <<<"$out" || fail "dataFrom not rendered"
+grep -q 'dataFrom:' <<<"$out" || fail "dataFrom not rendered"
+grep -q 'extract:' <<<"$out" || fail "extract not rendered"
+grep -q 'key: weknora-creds' <<<"$out" || fail "extract key should default to secretName"
+if grep -q 'secretKey:' <<<"$out"; then fail "per-key data leaked into extract mode"; fi
+if grep -q 'remoteRef:' <<<"$out"; then fail "remoteRef leaked into extract mode"; fi
+ok "extract mode: dataFrom=[{extract: {key: <item>}}] like the working crm-secret"
+
+echo "== 2b5. Explicit dataFrom wins over extract knob =="
+out=$(helm template weknora . \
+  --set externalSecrets.enabled=true --set externalSecrets.secretStore.name=op-store \
+  --set externalSecrets.extract=true \
+  --set externalSecrets.dataFrom[0].extract.key=custom-item)
+grep -q 'key: custom-item' <<<"$out" || fail "explicit dataFrom overridden by extract knob"
+ok "explicit dataFrom preserved"
+
 echo "== 2c. ESO auto data includes feature keys =="
 out=$(helm template weknora . \
   --set externalSecrets.enabled=true \

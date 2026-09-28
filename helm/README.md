@@ -175,9 +175,11 @@ workloads already reference — nothing else changes.
 
 **Zero-mapping setup (1Password):** if the store item exposes one field per
 secret key (`DB_USER`, `DB_PASSWORD`, `JWT_SECRET`, ... — exactly how the
-documented `weknora-creds` item is laid out), no key mappings are needed. The
-chart auto-generates them; the remote item defaults to the target secret
-name:
+documented `weknora-creds` item is laid out), no key mappings are needed.
+The recommended mode is whole-item extraction — every field of the item is
+synced as a secret key, so fields can be added or removed in 1Password
+without touching the chart. This also avoids the 1Password SDK provider's
+per-field reference parsing entirely:
 
 ```yaml
 secrets:
@@ -189,25 +191,26 @@ externalSecrets:
     name: onepassword-t8s-nsk
     kind: ClusterSecretStore
   secretName: weknora-creds   # k8s Secret AND remote item name
+  extract: true               # dataFrom: [{extract: {key: weknora-creds}}]
 ```
 
-The auto-generated key set mirrors the chart-managed Secret: `DB_USER`,
+Alternatively, write the same thing by hand via `externalSecrets.dataFrom`
+(plain item name, no `op://` prefix):
+
+```yaml
+externalSecrets:
+  dataFrom:
+    - extract:
+        key: weknora-creds
+```
+
+The per-field auto-generated key set (used when `extract: false` and no
+`data`/`dataFrom` given) mirrors the chart-managed Secret: `DB_USER`,
 `DB_PASSWORD`, `DB_NAME`, `JWT_SECRET`, `SYSTEM_AES_KEY`, `REDIS_PASSWORD`
 (in-cluster Redis or when set), `REDIS_USERNAME` (when set), plus `NEO4J_*` /
 `MINIO_*` / `S3_*` per feature flags. A key missing from the remote item
-fails the sync — trim the set with an explicit `data` list if needed.
-
-Which `remoteRef` shape is generated depends on `externalSecrets.remoteKey`:
-
-- **1Password Connect provider** — plain item name (the default, equal to
-  the target secret name): `{key: weknora-creds, property: DB_USER}`
-- **1Password SDK provider** — full `op://` URI prefix (the SDK resolves
-  remote keys as secret references):
-  ```yaml
-  externalSecrets:
-    remoteKey: "op://t8s-nsk/weknora-creds"
-  # -> {key: op://t8s-nsk/weknora-creds/DB_USER}
-  ```
+fails the sync — prefer `extract: true` with 1Password, or provide an
+explicit `data` list to trim the set.
 
 **Explicit mappings** (e.g. Vault, or field names that differ from the
 secret keys):
