@@ -191,9 +191,23 @@ externalSecrets:
   secretName: weknora-creds   # k8s Secret AND remote item name
 ```
 
-The auto-generated key set mirrors the chart-managed Secret: base keys plus
-`NEO4J_*` when neo4j is enabled and `MINIO_*`/`S3_*` per `storage.type`. A
-different remote path can be set via `externalSecrets.remoteKey`.
+The auto-generated key set mirrors the chart-managed Secret: `DB_USER`,
+`DB_PASSWORD`, `DB_NAME`, `JWT_SECRET`, `SYSTEM_AES_KEY`, `REDIS_PASSWORD`
+(in-cluster Redis or when set), `REDIS_USERNAME` (when set), plus `NEO4J_*` /
+`MINIO_*` / `S3_*` per feature flags. A key missing from the remote item
+fails the sync — trim the set with an explicit `data` list if needed.
+
+Which `remoteRef` shape is generated depends on `externalSecrets.remoteKey`:
+
+- **1Password Connect provider** — plain item name (the default, equal to
+  the target secret name): `{key: weknora-creds, property: DB_USER}`
+- **1Password SDK provider** — full `op://` URI prefix (the SDK resolves
+  remote keys as secret references):
+  ```yaml
+  externalSecrets:
+    remoteKey: "op://t8s-nsk/weknora-creds"
+  # -> {key: op://t8s-nsk/weknora-creds/DB_USER}
+  ```
 
 **Explicit mappings** (e.g. Vault, or field names that differ from the
 secret keys):

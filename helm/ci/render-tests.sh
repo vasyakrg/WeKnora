@@ -41,11 +41,31 @@ out=$(helm template weknora . \
   --set externalSecrets.secretStore.kind=ClusterSecretStore \
   --set externalSecrets.secretName=weknora-creds)
 grep -q 'kind: ExternalSecret' <<<"$out" || fail "ExternalSecret not rendered"
-[ "$(grep -c 'secretKey:' <<<"$out")" -eq 7 ] || fail "expected 7 auto base keys, got $(grep -c 'secretKey:' <<<"$out")"
+[ "$(grep -c 'secretKey:' <<<"$out")" -eq 6 ] || fail "expected 6 auto base keys, got $(grep -c 'secretKey:' <<<"$out")"
 grep -q 'key: weknora-creds' <<<"$out" || fail "remoteRef.key should default to secretName"
 grep -q 'property: SYSTEM_AES_KEY' <<<"$out" || fail "auto property per key"
+if grep -q 'property: REDIS_USERNAME' <<<"$out"; then fail "REDIS_USERNAME should be excluded when secrets.redisUsername is empty"; fi
 if grep -q 'property: NEO4J_USERNAME' <<<"$out"; then fail "neo4j keys leaked into base set"; fi
-ok "auto mappings: 7 base keys, remoteKey=secretName"
+ok "auto mappings: 6 base keys, remoteKey=secretName"
+
+echo "== 2b2. ESO auto includes REDIS_USERNAME when set =="
+out=$(helm template weknora . \
+  --set externalSecrets.enabled=true --set externalSecrets.secretStore.name=op-store \
+  --set secrets.redisUsername=default)
+grep -q 'property: REDIS_USERNAME' <<<"$out" || fail "REDIS_USERNAME not mapped"
+ok "REDIS_USERNAME mapped when secrets.redisUsername is set"
+
+echo "== 2b3. ESO auto with 1Password SDK provider (op:// remoteKey) =="
+out=$(helm template weknora . \
+  --set externalSecrets.enabled=true \
+  --set externalSecrets.secretStore.name=onepassword-t8s-nsk \
+  --set externalSecrets.secretStore.kind=ClusterSecretStore \
+  --set externalSecrets.secretName=weknora-creds \
+  --set externalSecrets.remoteKey='op://t8s-nsk/weknora-creds')
+grep -q 'key: op://t8s-nsk/weknora-creds/DB_USER' <<<"$out" || fail "op:// reference not generated"
+grep -q 'key: op://t8s-nsk/weknora-creds/SYSTEM_AES_KEY' <<<"$out" || fail "op:// reference for SYSTEM_AES_KEY"
+[ "$(grep -c 'property:' <<<"$out")" -eq 0 ] || fail "property must be omitted in op:// form"
+ok "op:// form: full URI per key, no property (1Password SDK provider)"
 
 echo "== 2c. ESO auto data includes feature keys =="
 out=$(helm template weknora . \
@@ -53,7 +73,7 @@ out=$(helm template weknora . \
   --set externalSecrets.secretStore.name=op-store \
   --set neo4j.enabled=true --set neo4j.password=p \
   --set storage.type=minio --set storage.minio.endpoint=m:9000 --set storage.minio.bucket=b)
-[ "$(grep -c 'secretKey:' <<<"$out")" -eq 11 ] || fail "expected 11 keys (base+neo4j+minio), got $(grep -c 'secretKey:' <<<"$out")"
+[ "$(grep -c 'secretKey:' <<<"$out")" -eq 10 ] || fail "expected 10 keys (base+neo4j+minio), got $(grep -c 'secretKey:' <<<"$out")"
 grep -q 'property: MINIO_SECRET_ACCESS_KEY' <<<"$out" || fail "minio keys"
 grep -q 'property: NEO4J_PASSWORD' <<<"$out" || fail "neo4j keys"
 ok "feature-dependent keys auto-included"

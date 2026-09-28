@@ -575,9 +575,12 @@ externalSecrets:
   secretName: ""
 
   # -- Remote key (item/path in the external store) used by the auto-generated
-  # `data` mappings. Defaults to the target secret name — the 1Password
-  # pattern, where the k8s Secret mirrors an item of the same name (e.g. the
-  # weknora-creds item with DB_USER, DB_PASSWORD, ... fields).
+  # `data` mappings. Defaults to the target secret name. Two forms:
+  #   "weknora-creds"                    -> {key: weknora-creds, property: <key>}
+  #                                          (1Password Connect provider)
+  #   "op://t8s-nsk/weknora-creds"       -> {key: op://t8s-nsk/weknora-creds/<key>}
+  #                                          (1Password SDK provider, which
+  #                                          requires full op:// URIs)
   remoteKey: ""
 
   # -- What happens if the target secret already exists: Owner (reconcile and
@@ -595,10 +598,13 @@ externalSecrets:
 
   # -- Key mappings. Each entry syncs one key of the Kubernetes Secret.
   # When both `data` and `dataFrom` are empty, the chart auto-generates
-  # mappings for the default key set (base keys + feature-dependent ones:
-  # NEO4J_* when neo4j.enabled, MINIO_* / S3_* per storage.type) pointing at
-  # `remoteKey` with property == key name. ESO rejects an ExternalSecret
-  # without data/dataFrom, so at least one source is always rendered.
+  # mappings for the default key set: DB_USER, DB_PASSWORD, DB_NAME,
+  # JWT_SECRET, SYSTEM_AES_KEY, plus REDIS_USERNAME only when
+  # secrets.redisUsername is set, REDIS_PASSWORD for the in-cluster Redis
+  # (or when secrets.redisPassword is set), and NEO4J_* / MINIO_* / S3_*
+  # per neo4j.enabled / storage.type. Keys missing from the remote item make
+  # the sync fail — use explicit `data` to trim the set further. ESO rejects
+  # an ExternalSecret without data/dataFrom, so one source is always rendered.
   data: []
   #  - secretKey: DB_PASSWORD
   #    remoteRef:
