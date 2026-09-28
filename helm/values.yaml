@@ -95,8 +95,6 @@ app:
     GIN_MODE: release
     # -- Retrieval driver: postgres, elasticsearch_v7, elasticsearch_v8, qdrant
     RETRIEVE_DRIVER: postgres
-    # -- Storage type: local, minio, cos, tos, s3
-    STORAGE_TYPE: local
     LOCAL_STORAGE_BASE_DIR: /data/files
     AUTO_RECOVER_DIRTY: "true"
     STREAM_MANAGER_TYPE: redis
@@ -111,6 +109,15 @@ app:
   extraEnv: []
   # - name: OLLAMA_BASE_URL
   #   value: "http://ollama:11434"
+
+  # -- Additional envFrom sources (ConfigMaps/Secrets mounted as env vars)
+  # Handy for wiring exotic storage backends (cos/tos/obs/oss) or injecting a
+  # whole ConfigMap of settings.
+  extraEnvFrom: []
+  # - configMapRef:
+  #     name: weknora-extra-settings
+  # - secretRef:
+  #     name: weknora-extra-secrets
 
   # -- Service configuration
   service:
@@ -225,9 +232,14 @@ docreader:
     # runAsNonRoot: true  # Disabled - official images run as root
     allowPrivilegeEscalation: false
 
-  # -- Environment variables
-  env:
-    STORAGE_TYPE: local
+  # -- Additional environment variables
+  extraEnv: []
+
+  # -- Additional envFrom sources (ConfigMaps/Secrets mounted as env vars),
+  # e.g. credentials for exotic storage backends (cos/tos/obs/oss)
+  extraEnvFrom: []
+  # - secretRef:
+  #     name: weknora-docreader-storage
 
   # -- Service configuration
   service:
@@ -248,7 +260,20 @@ docreader:
 # -----------------------------------------------------------------------------
 postgresql:
   # -- Enable PostgreSQL
+  # Set to false (or use postgresql.external.enabled=true) to skip the
+  # in-cluster deployment and point the app at an external database.
   enabled: true
+
+  # -- Use an external PostgreSQL instead of deploying ParadeDB in-cluster.
+  # The app then connects to postgresql.external.host; credentials still come
+  # from the main secret (secrets.dbUser/dbPassword/dbName, an existing secret
+  # or External Secrets Operator).
+  external:
+    enabled: false
+    # -- Host of the external PostgreSQL (required when external.enabled=true)
+    host: ""
+    # -- Port of the external PostgreSQL
+    port: 5432
 
   image:
     # -- Image repository (ParadeDB for vector search)
@@ -294,7 +319,22 @@ postgresql:
 # -----------------------------------------------------------------------------
 redis:
   # -- Enable Redis
+  # Set to false (or use redis.external.enabled=true) to skip the in-cluster
+  # deployment and point the app at an external Redis.
   enabled: true
+
+  # -- Use an external Redis instead of deploying it in-cluster.
+  # Credentials still come from the main secret (secrets.redisPassword /
+  # secrets.redisUsername, an existing secret or External Secrets Operator).
+  # An empty secrets.redisPassword is allowed for a Redis without auth.
+  external:
+    enabled: false
+    # -- Host of the external Redis (required when external.enabled=true)
+    host: ""
+    # -- Port of the external Redis
+    port: 6379
+    # -- Logical database index (REDIS_DB)
+    database: 0
 
   image:
     # -- Image repository
@@ -354,32 +394,97 @@ ingress:
   # -- Enable ingress
   enabled: false
 
-  # -- Ingress class name
+  # -- Ingress class name (nginx, traefik, ...)
   className: nginx
+
+  # -- Controller preset for generated annotations: "nginx", "traefik" or
+  # "none". Leave empty to auto-detect from ingress.className.
+  # nginx:   proxy-body-size + proxy timeouts annotations.
+  # traefik: buffering middleware annotation (maxRequestBodyBytes). Note that
+  #          per-Ingress timeouts are not supported by Traefik annotations —
+  #          configure them on the controller (entrypoint transport).
+  preset: ""
 
   # -- Ingress hostname
   host: weknora.example.com
 
-  # -- TLS configuration
+  # -- Upload body size limit in MB, applied by the controller preset
+  # (nginx proxy-body-size / traefik maxRequestBodyBytes)
+  maxBodySizeMB: 100
+
+  # -- TLS configuration. TLS also turns on automatically when a
+  # cert-manager certificate is issued for the ingress host
+  # (see the certificate section below).
   tls:
     # -- Enable TLS
     enabled: false
-    # -- TLS secret name
+    # -- TLS secret name. Empty: use the cert-manager certificate secret
+    # when certificate.enabled, otherwise no secretName (controller default).
     secretName: ""
 
-  # -- Additional annotations
+  # -- Additional annotations, merged over the preset (same key wins)
   # Ref: https://kubernetes.github.io/ingress-nginx/user-guide/nginx-configuration/annotations/
-  annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
-    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  # Ref: https://doc.traefik.io/traefik/reference/routing-configuration/kubernetes/ingress/annotations/
+  annotations: {}
+
+# -----------------------------------------------------------------------------
+# cert-manager Certificate
+# -----------------------------------------------------------------------------
+# Issues the TLS certificate via cert-manager instead of supplying a
+# pre-created secret. Requires cert-manager with the cert-manager.io CRDs
+# installed in the cluster. Ref: https://cert-manager.io/
+#
+# Minimal setup (certificate for the ingress host):
+#   certificate:
+#     enabled: true
+#     issuerRef:
+#       name: letsencrypt-prod
+# Everything else has a sensible default.
+certificate:
+  # -- Render a Certificate resource
+  enabled: false
+
+  # -- DNS names (SANs) on the certificate. The first entry is the primary
+  # one: it becomes commonName and decides whether the ingress TLS section is
+  # wired to the issued secret automatically. Defaults to [ingress.host].
+  dnsNames: []
+  # - weknora.example.com
+  # - www.weknora.example.com
+
+  # -- Secret that receives the issued keypair. Only set this for a custom
+  # name; by default the ingress references the generated one automatically.
+  secretName: ""
+
+  issuerRef:
+    # -- Issuer name (required when enabled)
+    name: letsencrypt-prod
+    # -- Issuer kind: ClusterIssuer or Issuer
+    kind: ClusterIssuer
+    # -- Issuer API group
+    group: cert-manager.io
+
+  # -- Certificate lifetime (e.g. 2160h); empty = issuer default
+  duration: ""
+
+  # -- Renew when less than this remains (e.g. 360h); empty = issuer default
+  renewBefore: ""
+
+  # -- Private key options (passed through), e.g. {rotationPolicy: Always}
+  privateKey: {}
+
+  # -- Extra annotations for the Certificate object
+  annotations: {}
 
 # -----------------------------------------------------------------------------
 # Secrets Configuration
 # -----------------------------------------------------------------------------
 # IMPORTANT: Do NOT use default values in production!
 # Use --set or external secret management (External Secrets Operator, Vault, etc.)
+#
+# The secrets.* values below are only required when the chart creates the
+# Secret itself (default). They are never enforced when the Secret comes from
+# outside: set secrets.create=false (own ExternalSecret CR / sealed-secrets /
+# manual Secret), secrets.existingSecret, or externalSecrets.enabled.
 #
 # Example installation:
 #   helm install weknora ./helm \
@@ -388,17 +493,26 @@ ingress:
 #     --set secrets.jwtSecret=<secure-random-string>
 #
 secrets:
+  # -- Create the chart-managed Secret. Set to false when the Secret is
+  # provisioned outside the chart entirely (your own ExternalSecret CR,
+  # sealed-secrets, manual kubectl apply, ...). The workloads then read
+  # <fullname>-secrets, which you must provide yourself. externalSecrets or
+  # secrets.existingSecret imply this too. When false, none of the
+  # secrets.* values are required at render time.
+  create: true
   # -- Database username
   dbUser: postgres
-  # -- Database password (REQUIRED: change in production)
+  # -- Database password. Required only for the default install (chart
+  # creates the Secret and the in-cluster PostgreSQL consumes it).
   dbPassword: ""
   # -- Database name
   dbName: weknora
   # -- Redis username (OPTIONAL: for Redis 6.0+ ACL)
   redisUsername: ""
-  # -- Redis password (REQUIRED: change in production)
+  # -- Redis password. Required for the in-cluster Redis; may stay empty for
+  # an external Redis without auth.
   redisPassword: ""
-  # -- JWT signing secret (REQUIRED: change in production)
+  # -- JWT signing secret. Required only when the chart creates the Secret.
   jwtSecret: ""
   # -- System AES-256 key for database field encryption (must be exactly 32 bytes).
   # Encrypts: tenants.api_key, model API keys, vector store credentials,
@@ -415,29 +529,123 @@ secrets:
   # it has been removed from the Secret.
   systemAesKey: ""
 
+  # -- MinIO access key (used when storage.type=minio)
+  minioAccessKey: ""
+  # -- MinIO secret key (used when storage.type=minio)
+  minioSecretKey: ""
+  # -- S3 access key (used when storage.type=s3)
+  s3AccessKey: ""
+  # -- S3 secret key (used when storage.type=s3)
+  s3SecretKey: ""
+
   # -- Use existing secret instead of creating one
-  # The secret must contain keys: DB_USER, DB_PASSWORD, DB_NAME, REDIS_USERNAME, REDIS_PASSWORD, JWT_SECRET, SYSTEM_AES_KEY
+  # The secret must contain the keys in use:
+  #   always:        DB_USER, DB_PASSWORD, DB_NAME, REDIS_USERNAME (may be
+  #                  empty), REDIS_PASSWORD (unless the external Redis has no
+  #                  auth), JWT_SECRET, SYSTEM_AES_KEY
+  #   neo4j.enabled: NEO4J_USERNAME, NEO4J_PASSWORD
+  #   minio storage: MINIO_ACCESS_KEY_ID, MINIO_SECRET_ACCESS_KEY
+  #   s3 storage:    S3_ACCESS_KEY, S3_SECRET_KEY
   existingSecret: ""
+
+# -----------------------------------------------------------------------------
+# External Secrets Operator (ESO)
+# -----------------------------------------------------------------------------
+# Syncs the chart secret from an external secret store (Vault, AWS/GCP/Azure
+# secret managers, etc.) instead of creating a plain Kubernetes Secret.
+# The rendered ExternalSecret targets the same Secret name the workloads read
+# (weknora.fullname-secrets by default), so no other values need to change.
+# Required remote keys mirror secrets.existingSecret above.
+# Ref: https://external-secrets.io/
+externalSecrets:
+  # -- Enable ExternalSecret instead of the chart-managed Secret
+  enabled: false
+
+  # -- Refresh interval for syncing from the store
+  refreshInterval: 1h
+
+  # -- SecretStore reference (a cluster-scoped ClusterSecretStore also works)
+  secretStore:
+    # -- Name of the (Cluster)SecretStore (required when enabled)
+    name: ""
+    # -- Kind of the store reference: SecretStore or ClusterSecretStore
+    kind: SecretStore
+
+  # -- Target secret name (defaults to fullname-secrets)
+  secretName: ""
+
+  # -- What happens if the target secret already exists: Owner (reconcile and
+  # manage) or Merge (only sync listed keys, keep the rest). Use Merge when
+  # SYSTEM_AES_KEY is managed separately, e.g. by an earlier deploy step.
+  creationPolicy: Owner
+
+  # -- What happens to the target Secret when the ExternalSecret is deleted:
+  # Retain (keep it, default) or Delete.
+  deletionPolicy: Retain
+
+  # -- Extra labels/annotations for the ExternalSecret object itself
+  labels: {}
+  annotations: {}
+
+  # -- Key mappings. Each entry syncs one key of the Kubernetes Secret.
+  data: []
+  #  - secretKey: DB_PASSWORD
+  #    remoteRef:
+  #      key: weknora/prod        # path/key in the external store
+  #      property: db-password    # field within the store entry (Vault etc.)
+  #  - secretKey: JWT_SECRET
+  #    remoteRef:
+  #      key: weknora/prod
+  #      property: jwt-secret
+
+  # -- Alternative to data: pull whole store entries as Secret keys
+  # (FindProvider / generator syntax of ESO).
+  dataFrom: []
+  #  - extract:
+  #      key: weknora/prod
+
+# -----------------------------------------------------------------------------
+# File Storage Backend
+# -----------------------------------------------------------------------------
+# Non-secret storage settings shared by app and docreader. Mirrors the
+# STORAGE_TYPE / MINIO_* / S3_* variables in docker-compose.yml.
+# Credentials go to the main secret: secrets.minioAccessKey/minioSecretKey,
+# secrets.s3AccessKey/s3SecretKey (or via External Secrets Operator).
+# Any other backend (cos/tos/obs/oss/weaviate/...) can be wired with
+# app.extraEnv + app.extraEnvFrom / docreader.extraEnvFrom.
+storage:
+  # -- Storage backend: local, minio, s3 (see docker-compose.yml for the
+  # full list supported by the app). "local" uses the shared PVC.
+  type: local
+
+  # -- MinIO settings (storage.type=minio)
+  minio:
+    # -- MinIO endpoint, e.g. minio.example.com:9000 or in-cluster svc:9000
+    endpoint: ""
+    # -- Target bucket (must exist; the chart does not create buckets)
+    bucket: ""
+    # -- Key prefix inside the bucket
+    pathPrefix: ""
+    # -- Use TLS to reach MinIO
+    useSSL: false
+
+  # -- AWS S3 settings (storage.type=s3)
+  s3:
+    # -- Custom endpoint (leave empty for real AWS S3)
+    endpoint: ""
+    # -- AWS region (required for real AWS S3)
+    region: ""
+    bucket: ""
+    # -- Key prefix inside the bucket
+    pathPrefix: "weknora/"
+    useSSL: true
+    # -- Use path-style addressing (required for MinIO/other S3-compatible
+    # endpoints exposed over a hostname/IP rather than a wildcard domain)
+    forcePathStyle: false
 
 # -----------------------------------------------------------------------------
 # Optional Components (Profiles from docker-compose)
 # -----------------------------------------------------------------------------
-
-# -- MinIO configuration (S3-compatible storage)
-# Equivalent to: docker compose --profile minio
-minio:
-  # -- Enable MinIO
-  enabled: false
-  image:
-    repository: pgsty/minio
-    tag: latest
-  # -- Root user
-  rootUser: minioadmin
-  # -- Root password (REQUIRED if enabled)
-  rootPassword: ""
-  persistence:
-    enabled: true
-    size: 20Gi
 
 # -- Neo4j configuration (Knowledge Graph)
 # Equivalent to: docker compose --profile neo4j
@@ -487,15 +695,3 @@ neo4j:
 
   # -- Affinity rules
   affinity: {}
-
-# -- Qdrant configuration (Vector Database)
-# Equivalent to: docker compose --profile qdrant
-qdrant:
-  # -- Enable Qdrant as alternative vector store
-  enabled: false
-  image:
-    repository: qdrant/qdrant
-    tag: latest
-  persistence:
-    enabled: true
-    size: 10Gi

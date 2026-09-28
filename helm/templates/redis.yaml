@@ -4,8 +4,9 @@ SPDX-License-Identifier: MIT
 
 Redis Deployment and Service.
 Redis is used for stream management and async task queuing.
+Skipped when redis.external.enabled=true (app points at the external Redis).
 */}}
-{{- if .Values.redis.enabled }}
+{{- if and .Values.redis.enabled (not .Values.redis.external.enabled) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

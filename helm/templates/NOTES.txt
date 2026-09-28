@@ -60,22 +60,37 @@ Components deployed:
 {{- end }}
 {{- if .Values.postgresql.enabled }}
   - PostgreSQL/ParadeDB ({{ include "weknora.postgresql.image" . }})
+{{- else if .Values.postgresql.external.enabled }}
+  - PostgreSQL: external at {{ include "weknora.postgresql.host" . }}:{{ include "weknora.postgresql.port" . }}
 {{- end }}
-{{- if .Values.redis.enabled }}
+{{- if and .Values.redis.enabled (not .Values.redis.external.enabled) }}
   - Redis ({{ include "weknora.redis.image" . }})
+{{- else if .Values.redis.external.enabled }}
+  - Redis: external at {{ include "weknora.redis.addr" . }}
 {{- end }}
 
-{{- if or .Values.minio.enabled .Values.neo4j.enabled .Values.qdrant.enabled }}
+{{- if .Values.neo4j.enabled }}
 
 Optional components enabled:
-{{- if .Values.minio.enabled }}
-  - MinIO (S3-compatible storage)
-{{- end }}
-{{- if .Values.neo4j.enabled }}
   - Neo4j (Knowledge Graph)
 {{- end }}
-{{- if .Values.qdrant.enabled }}
-  - Qdrant (Vector Database)
+
+Secret source:
+{{- if .Values.externalSecrets.enabled }}
+  - External Secrets Operator -> {{ include "weknora.secretName" . }} (store: {{ .Values.externalSecrets.secretStore.kind }}/{{ .Values.externalSecrets.secretStore.name }})
+{{- else if .Values.secrets.existingSecret }}
+  - Existing Secret {{ .Values.secrets.existingSecret }}
+{{- else }}
+  - Chart-managed Secret {{ include "weknora.secretName" . }}
+{{- end }}
+
+{{- if .Values.certificate.enabled }}
+
+CERT-MANAGER CERTIFICATE:
+  - Certificate {{ include "weknora.fullname" . }}-tls via {{ .Values.certificate.issuerRef.kind | default "ClusterIssuer" }}/{{ .Values.certificate.issuerRef.name }} -> Secret {{ include "weknora.certificate.secretName" . }}
+  - DNS names: {{ join ", " (compact (.Values.certificate.dnsNames | default (list .Values.ingress.host))) }}
+{{- if and .Values.ingress.enabled (ne (include "weknora.ingress.tlsEnabled" .) "true") }}
+  NOTE: the certificate is for a different host than the ingress - wire it via ingress.tls.enabled / ingress.tls.secretName if needed.
 {{- end }}
 {{- end }}
 

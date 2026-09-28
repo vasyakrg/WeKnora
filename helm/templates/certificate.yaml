@@ -1,0 +1,48 @@
+{{/*
+Copyright 2025 Tencent
+SPDX-License-Identifier: MIT
+
+cert-manager Certificate for WeKnora.
+
+Renders when certificate.enabled=true. DNS names default to the ingress host;
+when the primary name matches ingress.host, the Ingress TLS section is wired
+to the issued secret automatically. A certificate for a different endpoint
+(e.g. an external S3 host) is requested via certificate.dnsNames.
+*/}}
+{{- if .Values.certificate.enabled }}
+{{- $dnsNames := compact (.Values.certificate.dnsNames | default (list .Values.ingress.host)) }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "weknora.fullname" . }}-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "weknora.componentLabels" (dict "component" "certificate" "context" .) | nindent 4 }}
+  {{- with .Values.certificate.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  commonName: {{ first $dnsNames | quote }}
+  dnsNames:
+    {{- range $dnsNames }}
+    - {{ . | quote }}
+    {{- end }}
+  issuerRef:
+    name: {{ required "certificate.issuerRef.name is required when certificate.enabled=true" .Values.certificate.issuerRef.name }}
+    kind: {{ .Values.certificate.issuerRef.kind | default "ClusterIssuer" }}
+    {{- with .Values.certificate.issuerRef.group }}
+    group: {{ . }}
+    {{- end }}
+  secretName: {{ include "weknora.certificate.secretName" . }}
+  {{- with .Values.certificate.duration }}
+  duration: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.certificate.renewBefore }}
+  renewBefore: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.certificate.privateKey }}
+  privateKey:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

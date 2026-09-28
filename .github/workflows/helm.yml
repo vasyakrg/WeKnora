@@ -30,6 +30,9 @@ jobs:
       - name: Lint chart
         run: helm lint ./helm
 
+      - name: Render smoke tests
+        run: ./helm/ci/render-tests.sh
+
       - name: Verify application image tags
         shell: bash
         run: |

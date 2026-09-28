@@ -4,6 +4,10 @@ SPDX-License-Identifier: MIT
 
 Ingress resource for WeKnora.
 Routes /api to backend, / to frontend.
+
+Annotations come from the controller preset (weknora.ingress.annotations
+helper) merged with ingress.annotations user overrides. Works with any
+ingress controller; preset only adds sensible defaults for nginx and traefik.
 */}}
 {{- if .Values.ingress.enabled }}
 apiVersion: networking.k8s.io/v1
@@ -13,20 +17,20 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "weknora.componentLabels" (dict "component" "ingress" "context" .) | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
+  {{- with include "weknora.ingress.annotations" . }}
   annotations:
-    {{- toYaml . | nindent 4 }}
+    {{- . | nindent 4 }}
   {{- end }}
 spec:
   {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className }}
   {{- end }}
-  {{- if .Values.ingress.tls.enabled }}
+  {{- if eq (include "weknora.ingress.tlsEnabled" .) "true" }}
   tls:
     - hosts:
         - {{ .Values.ingress.host | quote }}
-      {{- if .Values.ingress.tls.secretName }}
-      secretName: {{ .Values.ingress.tls.secretName }}
+      {{- with include "weknora.ingress.tlsSecretName" . }}
+      secretName: {{ . }}
       {{- end }}
   {{- end }}
   rules:
